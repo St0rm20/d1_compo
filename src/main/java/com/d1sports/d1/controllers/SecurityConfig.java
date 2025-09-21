@@ -26,6 +26,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/compositions/auth").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/compositions/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/compositions").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/compositions/**").authenticated() // ← AÑADE ESTA LÍNEA
                         .requestMatchers(HttpMethod.DELETE, "/api/compositions/**").authenticated()
                         .anyRequest().authenticated()
                 )

@@ -1,0 +1,42 @@
+### 1. Autenticación (POST)
+POST http://localhost:8080/api/compositions/auth
+Content-Type: application/json
+
+{
+  "password": "d1tupapa"
+}
+
+### 2. Obtener todas las composiciones (GET, público)
+GET http://localhost:8080/api/compositions?page=0&size=5
+
+### 3. Buscar composiciones por palabra clave (GET, público)
+GET http://localhost:8080/api/compositions?search=mid
+
+### 4. Crear una composición (POST, requiere auth)
+POST http://localhost:8080/api/compositions
+Content-Type: application/json
+Authorization: 1234
+
+{
+  "name": "Composición agresiva",
+  "description": "Full engage con campeones de iniciación",
+  "champions": [1, 2, 3, 4, 5]
+}
+
+### 5. Actualizar una composición existente (PUT, requiere auth)
+PUT http://localhost:8080/api/compositions/1
+Content-Type: application/json
+Authorization: 1234
+
+{
+  "name": "Composición actualizada",
+  "description": "Mejor balance entre daño y tanqueo",
+  "champions": [6, 7, 8, 9, 10]
+}
+
+### 6. Eliminar una composición (DELETE, requiere auth)
+DELETE http://localhost:8080/api/compositions/1
+Authorization: 1234
+
+### 7. Buscar campeones (GET, público)
+GET http://localhost:8080/api/compositions/champions?query=ahri

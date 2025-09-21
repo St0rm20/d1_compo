@@ -41,6 +41,24 @@ public class CompositionController {
         return ResponseEntity.ok(compositions);
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<Composition> updateComposition(
+            @PathVariable Long id,
+            @RequestBody CompositionDTO compositionDTO,
+            @RequestHeader("Authorization") String password) {
+
+        if (!compositionService.validatePassword(password)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            Composition updatedComposition = compositionService.updateComposition(id, compositionDTO);
+            return ResponseEntity.ok(updatedComposition);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
     @PostMapping
     public ResponseEntity<Composition> createComposition(
             @RequestBody CompositionDTO compositionDTO,

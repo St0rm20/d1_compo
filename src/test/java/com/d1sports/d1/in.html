@@ -131,19 +131,62 @@
         .password-toggle {
             cursor: pointer;
         }
+        .error-message {
+            color: #ff6b6b;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        .debug-panel {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #463714;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .connection-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            border-radius: 5px;
+            z-index: 1000;
+            font-weight: bold;
+        }
+        .status-online {
+            background-color: #198754;
+            color: white;
+        }
+        .status-offline {
+            background-color: #dc3545;
+            color: white;
+        }
+        .status-demo {
+            background-color: #ffc107;
+            color: black;
+        }
     </style>
 </head>
 <body>
+<!-- Indicador de estado de conexión -->
+<div id="connection-status" class="connection-status d-none">
+    <i class="fas fa-circle me-1"></i>
+    <span id="status-text">Conectado</span>
+</div>
+
 <!-- Pantalla de autenticación -->
 <div id="auth-section" class="auth-container">
     <div class="text-center mb-4">
-        <img src="https://images.contentstack.io/v3/assets/blt731acb42bb3d1659/blt6c0e3156f2fcf7b2/5e50c12bcf88d36e2a933f39/RiotX_ChampionList_loL-logo.png" alt="LoL Logo" width="150">
+        <img src="logo.png" alt="LoL Logo" width="150">
         <h2 class="mt-3">Composiciones LoL</h2>
         <p class="text-muted">Ingrese la contraseña para continuar</p>
     </div>
     <div class="mb-3">
         <div class="input-group">
-            <input type="password" id="password" class="form-control form-control-custom" placeholder="Contraseña">
+            <input type="password" id="password" class="form-control form-control-custom" placeholder="Contraseña" value="d1tupapa">
             <span class="input-group-text password-toggle" id="togglePassword">
                     <i class="fas fa-eye"></i>
                 </span>
@@ -153,6 +196,12 @@
         <i class="fas fa-sign-in-alt me-2"></i>Acceder
     </button>
     <div id="auth-error" class="alert alert-danger mt-3 d-none"></div>
+
+    <!-- Información de conexión -->
+    <div class="alert alert-info mt-3">
+        <i class="fas fa-info-circle me-2"></i>
+        <small>Si el backend no está disponible, la aplicación funcionará en modo demostración.</small>
+    </div>
 </div>
 
 <!-- Aplicación principal -->
@@ -160,7 +209,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark navbar-custom">
         <div class="container-fluid">
             <a class="navbar-brand" href="#">
-                <img src="https://images.contentstack.io/v3/assets/blt731acb42bb3d1659/blt6c0e3156f2fcf7b2/5e50c12bcf88d36e2a933f39/RiotX_ChampionList_loL-logo.png" alt="LoL Logo" width="30" height="30" class="d-inline-block align-text-top me-2">
+                <img src="logo.png" alt="LoL Logo" width="30" height="30" class="d-inline-block align-text-top me-2">
                 Composiciones LoL
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -190,6 +239,11 @@
 
     <div class="main-container">
         <div class="container-fluid">
+            <div id="demo-alert" class="alert alert-warning d-none">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Modo demostración:</strong> El backend no está disponible. Los datos se guardarán localmente.
+            </div>
+
             <h2 class="mb-4">Composiciones Guardadas</h2>
 
             <div id="compositions-list" class="row">
@@ -202,6 +256,12 @@
                         <!-- La paginación se generará aquí -->
                     </ul>
                 </nav>
+            </div>
+
+            <!-- Panel de depuración (solo visible en desarrollo) -->
+            <div class="debug-panel mt-4 d-none" id="debug-panel">
+                <h6>Información de Depuración</h6>
+                <div id="debug-content"></div>
             </div>
         </div>
     </div>
@@ -219,8 +279,9 @@
                 <form id="compositionForm">
                     <input type="hidden" id="compositionId">
                     <div class="mb-3">
-                        <label for="title" class="form-label">Título de la composición</label>
+                        <label for="title" class="form-label">Título de la composición *</label>
                         <input type="text" class="form-control form-control-custom" id="title" required>
+                        <div class="error-message" id="title-error"></div>
                     </div>
 
                     <div class="mb-3">
@@ -228,7 +289,8 @@
                         <textarea class="form-control form-control-custom" id="observations" rows="3"></textarea>
                     </div>
 
-                    <h5 class="mt-4 mb-3">Líneas de la composición</h5>
+                    <h5 class="mt-4 mb-3">Líneas de la composición *</h5>
+                    <p class="text-muted">Selecciona al menos un campeón para cada línea</p>
 
                     <div id="lanes-container">
                         <!-- Las líneas se generarán aquí -->
@@ -255,6 +317,9 @@
     let isAuthenticated = false;
     let authToken = '';
     let championsList = [];
+    let backendAvailable = false;
+    let demoMode = false;
+    let demoCompositions = [];
 
     // Elementos del DOM
     const authSection = document.getElementById('auth-section');
@@ -269,6 +334,11 @@
     const searchInput = document.getElementById('search-input');
     const passwordInput = document.getElementById('password');
     const togglePassword = document.getElementById('togglePassword');
+    const debugPanel = document.getElementById('debug-panel');
+    const debugContent = document.getElementById('debug-content');
+    const connectionStatus = document.getElementById('connection-status');
+    const statusText = document.getElementById('status-text');
+    const demoAlert = document.getElementById('demo-alert');
 
     // Inicialización
     document.addEventListener('DOMContentLoaded', function() {
@@ -277,7 +347,7 @@
         if (savedToken) {
             authToken = savedToken;
             isAuthenticated = true;
-            showApp();
+            checkBackendConnection();
         }
 
         // Configurar evento para búsqueda en tiempo real
@@ -303,34 +373,127 @@
             e.preventDefault();
             saveComposition();
         });
+
+        // Mostrar panel de depuración en desarrollo
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            debugPanel.classList.remove('d-none');
+        }
     });
+
+    // Función para verificar la conexión con el backend
+    async function checkBackendConnection() {
+        try {
+            logDebug('Verificando conexión con el backend...');
+            const response = await fetch(`${API_BASE}/compositions/auth`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ password: 'd1tupapa' }),
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
+            });
+
+            if (response.ok) {
+                backendAvailable = true;
+                demoMode = false;
+                updateConnectionStatus('online', 'Conectado al backend');
+                showApp();
+                logDebug('Conexión con el backend establecida');
+            } else {
+                backendAvailable = false;
+                demoMode = true;
+                updateConnectionStatus('demo', 'Modo demostración');
+                showApp();
+                logDebug('El backend no está disponible, activando modo demostración');
+            }
+        } catch (error) {
+            backendAvailable = false;
+            demoMode = true;
+            updateConnectionStatus('offline', 'Error de conexión - Modo demostración');
+            showApp();
+            logDebug(`Error de conexión: ${error.message}. Activando modo demostración`);
+        }
+    }
+
+    // Función para actualizar el indicador de estado de conexión
+    function updateConnectionStatus(status, message) {
+        connectionStatus.classList.remove('d-none', 'status-online', 'status-offline', 'status-demo');
+
+        if (status === 'online') {
+            connectionStatus.classList.add('status-online');
+            demoAlert.classList.add('d-none');
+        } else if (status === 'demo') {
+            connectionStatus.classList.add('status-demo');
+            demoAlert.classList.remove('d-none');
+        } else {
+            connectionStatus.classList.add('status-offline');
+            demoAlert.classList.remove('d-none');
+        }
+
+        statusText.textContent = message;
+    }
+
+    // Función para registrar mensajes de depuración
+    function logDebug(message) {
+        if (debugPanel.classList.contains('d-none')) return;
+
+        const timestamp = new Date().toLocaleTimeString();
+        debugContent.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+        debugContent.scrollTop = debugContent.scrollHeight;
+    }
 
     // Función de autenticación
     async function authenticate() {
         const password = document.getElementById('password').value;
 
         try {
+            logDebug(`Intentando autenticar con contraseña: ${password}`);
             const response = await fetch(`${API_BASE}/compositions/auth`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ password })
+                body: JSON.stringify({ password }),
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
             });
 
             const result = await response.json();
+            logDebug(`Respuesta de autenticación: ${JSON.stringify(result)}`);
 
             if (result.authenticated) {
                 isAuthenticated = true;
-                authToken = btoa(password); // Simulamos un token
+                authToken = password;
                 localStorage.setItem('lolAuthToken', authToken);
-                showApp();
+                backendAvailable = true;
+                demoMode = false;
+                updateConnectionStatus('online', 'Conectado al backend');
                 authError.classList.add('d-none');
+                showApp();
+                logDebug('Autenticación exitosa');
             } else {
                 showAuthError('Contraseña incorrecta');
+                logDebug('Autenticación fallida: contraseña incorrecta');
             }
         } catch (error) {
-            showAuthError('Error de conexión');
+            if (error.name === 'AbortError') {
+                logDebug('Timeout de conexión al backend');
+                showAuthError('El backend no responde. Se activará el modo demostración.');
+
+                // Esperar un momento y luego activar modo demo
+                setTimeout(() => {
+                    isAuthenticated = true;
+                    authToken = password;
+                    localStorage.setItem('lolAuthToken', authToken);
+                    backendAvailable = false;
+                    demoMode = true;
+                    updateConnectionStatus('demo', 'Modo demostración');
+                    authError.classList.add('d-none');
+                    showApp();
+                }, 2000);
+            } else {
+                showAuthError('Error de conexión');
+                logDebug(`Error de conexión: ${error.message}`);
+            }
         }
     }
 
@@ -341,7 +504,10 @@
         localStorage.removeItem('lolAuthToken');
         authSection.classList.remove('d-none');
         app.classList.add('d-none');
-        passwordInput.value = '';
+        passwordInput.value = 'd1tupapa';
+        connectionStatus.classList.add('d-none');
+        demoAlert.classList.add('d-none');
+        logDebug('Sesión cerrada');
     }
 
     // Mostrar aplicación principal
@@ -364,28 +530,106 @@
         const searchTerm = searchInput.value;
         currentPage = page;
 
+        // Si estamos en modo demostración, cargar datos locales
+        if (demoMode) {
+            logDebug('Cargando composiciones en modo demostración');
+            loadDemoCompositions(searchTerm, page);
+            return;
+        }
+
+        // Intentar cargar desde el backend
         try {
             let url = `${API_BASE}/compositions?page=${page}&size=${PAGE_SIZE}`;
             if (searchTerm) {
                 url += `&search=${encodeURIComponent(searchTerm)}`;
             }
 
+            logDebug(`Cargando composiciones: ${url}`);
             const response = await fetch(url, {
                 headers: {
                     'Authorization': authToken
-                }
+                },
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
             });
 
             if (response.ok) {
                 const data = await response.json();
+                logDebug(`Composiciones cargadas: ${data.content.length} elementos`);
                 renderCompositions(data.content);
                 renderPagination(data.totalPages, page);
             } else if (response.status === 401) {
                 logout();
+            } else {
+                logDebug(`Error al cargar composiciones: ${response.status} ${response.statusText}`);
+                // Cambiar a modo demostración si el backend falla
+                demoMode = true;
+                updateConnectionStatus('demo', 'Modo demostración (fallback)');
+                loadDemoCompositions(searchTerm, page);
             }
         } catch (error) {
-            console.error('Error loading compositions:', error);
+            logDebug(`Error al cargar composiciones: ${error.message}`);
+            // Cambiar a modo demostración si hay error de conexión
+            demoMode = true;
+            updateConnectionStatus('demo', 'Modo demostración (fallback)');
+            loadDemoCompositions(searchTerm, page);
         }
+    }
+
+    // Cargar composiciones de demostración
+    function loadDemoCompositions(searchTerm, page) {
+        // Cargar datos de localStorage o usar datos de ejemplo
+        const savedCompositions = localStorage.getItem('demoCompositions');
+        if (savedCompositions) {
+            demoCompositions = JSON.parse(savedCompositions);
+        } else {
+            // Datos de ejemplo para demostración
+            demoCompositions = [
+                {
+                    id: 1,
+                    title: "Composición de Ejemplo",
+                    observations: "Esta es una composición de demostración",
+                    lines: [
+                        {
+                            laneType: "TOP",
+                            options: [{ champion: { id: 1, name: "Garen", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Garen.png" } }]
+                        },
+                        {
+                            laneType: "JG",
+                            options: [{ champion: { id: 2, name: "Lee Sin", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/LeeSin.png" } }]
+                        },
+                        {
+                            laneType: "MID",
+                            options: [{ champion: { id: 3, name: "Ahri", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Ahri.png" } }]
+                        },
+                        {
+                            laneType: "ADC",
+                            options: [{ champion: { id: 4, name: "Jinx", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Jinx.png" } }]
+                        },
+                        {
+                            laneType: "SUPP",
+                            options: [{ champion: { id: 5, name: "Thresh", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Thresh.png" } }]
+                        }
+                    ]
+                }
+            ];
+        }
+
+        // Filtrar por término de búsqueda si existe
+        let filteredCompositions = demoCompositions;
+        if (searchTerm) {
+            filteredCompositions = demoCompositions.filter(comp =>
+                comp.title.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        }
+
+        // Paginación simple para modo demo
+        const startIndex = page * PAGE_SIZE;
+        const endIndex = startIndex + PAGE_SIZE;
+        const paginatedCompositions = filteredCompositions.slice(startIndex, endIndex);
+        totalPages = Math.ceil(filteredCompositions.length / PAGE_SIZE);
+
+        renderCompositions(paginatedCompositions);
+        renderPagination(totalPages, page);
     }
 
     // Renderizar composiciones
@@ -449,7 +693,11 @@
                 `;
         }
 
-        for (let i = 0; i < totalPages; i++) {
+        // Mostrar máximo 5 páginas en la paginación
+        const startPage = Math.max(0, currentPage - 2);
+        const endPage = Math.min(totalPages, startPage + 5);
+
+        for (let i = startPage; i < endPage; i++) {
             paginationHTML += `
                     <li class="page-item ${i === currentPage ? 'active' : ''}">
                         <a class="page-link" href="#" onclick="loadCompositions(${i})">${i + 1}</a>
@@ -473,10 +721,28 @@
     // Cargar lista de campeones
     async function loadChampions() {
         try {
-            const response = await fetch(`${API_BASE}/compositions/champions`);
+            logDebug('Cargando lista de campeones...');
+            const response = await fetch(`${API_BASE}/compositions/champions`, {
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
+            });
             championsList = await response.json();
+            logDebug(`Lista de campeones cargada: ${championsList.length} campeones`);
         } catch (error) {
-            console.error('Error loading champions:', error);
+            logDebug(`Error al cargar campeones: ${error.message}`);
+            // Usar datos de ejemplo si la API no está disponible
+            championsList = [
+                { id: 1, name: "Ahri", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Ahri.png" },
+                { id: 2, name: "Yasuo", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Yasuo.png" },
+                { id: 3, name: "Lux", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Lux.png" },
+                { id: 4, name: "Zed", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Zed.png" },
+                { id: 5, name: "Jinx", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Jinx.png" },
+                { id: 6, name: "Garen", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Garen.png" },
+                { id: 7, name: "Lee Sin", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/LeeSin.png" },
+                { id: 8, name: "Thresh", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Thresh.png" },
+                { id: 9, name: "Darius", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Darius.png" },
+                { id: 10, name: "Ezreal", imageUrl: "https://ddragon.leagueoflegends.com/cdn/13.15.1/img/champion/Ezreal.png" }
+            ];
+            logDebug('Usando datos de ejemplo para campeones');
         }
     }
 
@@ -491,6 +757,7 @@
         document.getElementById('compositionId').value = '';
         document.getElementById('title').value = '';
         document.getElementById('observations').value = '';
+        document.getElementById('title-error').textContent = '';
 
         // Generar campos para las líneas
         const lanes = ['TOP', 'JG', 'MID', 'ADC', 'SUPP'];
@@ -504,6 +771,7 @@
                         <div class="suggestion-box" id="suggestions-${lane}"></div>
                     </div>
                     <div class="selected-champions" id="selected-${lane}"></div>
+                    <div class="error-message" id="${lane}-error"></div>
                 </div>
             `).join('');
 
@@ -517,6 +785,8 @@
                 }, 200);
             });
         });
+
+        logDebug('Formulario de creación mostrado');
     }
 
     // Mostrar sugerencias de campeones
@@ -552,20 +822,22 @@
         const selectedContainer = document.getElementById(`selected-${lane}`);
         const suggestionsBox = document.getElementById(`suggestions-${lane}`);
         const searchInput = document.querySelector(`.champion-search[data-lane="${lane}"]`);
+        const errorElement = document.getElementById(`${lane}-error`);
 
         // Ocultar sugerencias y limpiar búsqueda
         suggestionsBox.style.display = 'none';
         searchInput.value = '';
+        errorElement.textContent = '';
 
         // Verificar si ya se seleccionaron 5 campeones
         if (selectedContainer.children.length >= 5) {
-            alert('Máximo 5 campeones por línea');
+            errorElement.textContent = 'Máximo 5 campeones por línea';
             return;
         }
 
         // Verificar si el campeón ya fue seleccionado
         if (document.querySelector(`#selected-${lane} .champion-${championId}`)) {
-            alert('Este campeón ya fue seleccionado para esta línea');
+            errorElement.textContent = 'Este campeón ya fue seleccionado para esta línea';
             return;
         }
 
@@ -581,15 +853,55 @@
                     </span>
                 </div>
             `;
+
+        logDebug(`Campeón ${championName} seleccionado para la línea ${lane}`);
     }
 
     // Remover campeón seleccionado
     function removeChampion(element, lane, championId) {
         element.closest(`.champion-${championId}`).remove();
+        document.getElementById(`${lane}-error`).textContent = '';
+        logDebug(`Campeón ${championId} removido de la línea ${lane}`);
+    }
+
+    // Validar formulario antes de guardar
+    function validateForm() {
+        let isValid = true;
+        const title = document.getElementById('title').value;
+        const titleError = document.getElementById('title-error');
+
+        // Validar título
+        if (!title.trim()) {
+            titleError.textContent = 'El título es obligatorio';
+            isValid = false;
+        } else {
+            titleError.textContent = '';
+        }
+
+        // Validar que cada línea tenga al menos un campeón
+        const lanes = ['TOP', 'JG', 'MID', 'ADC', 'SUPP'];
+        lanes.forEach(lane => {
+            const errorElement = document.getElementById(`${lane}-error`);
+            const selectedCount = document.querySelectorAll(`#selected-${lane} .champion-small`).length;
+
+            if (selectedCount === 0) {
+                errorElement.textContent = 'Selecciona al menos un campeón';
+                isValid = false;
+            } else {
+                errorElement.textContent = '';
+            }
+        });
+
+        return isValid;
     }
 
     // Guardar composición
     async function saveComposition() {
+        if (!validateForm()) {
+            logDebug('Validación de formulario fallida');
+            return;
+        }
+
         const compositionId = document.getElementById('compositionId').value;
         const title = document.getElementById('title').value;
         const observations = document.getElementById('observations').value;
@@ -619,6 +931,15 @@
             lines: lines
         };
 
+        logDebug(`Enviando datos: ${JSON.stringify(compositionData)}`);
+
+        // Si estamos en modo demostración, guardar localmente
+        if (demoMode) {
+            saveDemoComposition(compositionData, compositionId);
+            return;
+        }
+
+        // Intentar guardar en el backend
         try {
             const url = compositionId ? `${API_BASE}/compositions/${compositionId}` : `${API_BASE}/compositions`;
             const method = compositionId ? 'PUT' : 'POST';
@@ -629,88 +950,170 @@
                     'Content-Type': 'application/json',
                     'Authorization': authToken
                 },
-                body: JSON.stringify(compositionData)
+                body: JSON.stringify(compositionData),
+                signal: AbortSignal.timeout(10000) // Timeout de 10 segundos
             });
 
             if (response.ok) {
+                const result = await response.json();
                 compositionModal.hide();
                 loadCompositions(currentPage);
+                logDebug('Composición guardada exitosamente');
             } else if (response.status === 401) {
                 logout();
             } else {
-                alert('Error al guardar la composición');
+                const errorText = await response.text();
+                logDebug(`Error al guardar: ${response.status} - ${errorText}`);
+                alert('Error al guardar la composición. Verifique la consola para más detalles.');
             }
         } catch (error) {
-            console.error('Error saving composition:', error);
-            alert('Error al guardar la composición');
+            logDebug(`Error de conexión: ${error.message}`);
+
+            // Preguntar al usuario si quiere guardar en modo demostración
+            if (confirm('Error de conexión al backend. ¿Desea guardar la composición localmente en modo demostración?')) {
+                demoMode = true;
+                updateConnectionStatus('demo', 'Modo demostración (fallback)');
+                saveDemoComposition(compositionData, compositionId);
+            }
+        }
+    }
+
+    // Guardar composición en modo demostración
+    function saveDemoComposition(compositionData, compositionId) {
+        try {
+            if (compositionId) {
+                // Editar composición existente
+                const index = demoCompositions.findIndex(comp => comp.id == compositionId);
+                if (index !== -1) {
+                    demoCompositions[index] = {
+                        ...compositionData,
+                        id: compositionId,
+                        lines: compositionData.lines.map(line => ({
+                            ...line,
+                            options: line.options.map(opt => ({
+                                ...opt,
+                                champion: championsList.find(c => c.id === opt.championId)
+                            }))
+                        }))
+                    };
+                }
+            } else {
+                // Crear nueva composición
+                const newId = demoCompositions.length > 0 ? Math.max(...demoCompositions.map(c => c.id)) + 1 : 1;
+                demoCompositions.push({
+                    ...compositionData,
+                    id: newId,
+                    lines: compositionData.lines.map(line => ({
+                        ...line,
+                        options: line.options.map(opt => ({
+                            ...opt,
+                            champion: championsList.find(c => c.id === opt.championId)
+                        }))
+                    }))
+                });
+            }
+
+            // Guardar en localStorage
+            localStorage.setItem('demoCompositions', JSON.stringify(demoCompositions));
+
+            compositionModal.hide();
+            loadCompositions(currentPage);
+            logDebug('Composición guardada en modo demostración');
+        } catch (error) {
+            logDebug(`Error al guardar en modo demostración: ${error.message}`);
+            alert('Error al guardar la composición en modo demostración.');
         }
     }
 
     // Editar composición
     async function editComposition(id) {
+        // Si estamos en modo demostración, cargar desde datos locales
+        if (demoMode) {
+            const composition = demoCompositions.find(comp => comp.id == id);
+            if (composition) {
+                showEditForm(composition);
+            } else {
+                alert('Composición no encontrada');
+            }
+            return;
+        }
+
+        // Intentar cargar desde el backend
         try {
+            logDebug(`Cargando composición para editar: ${id}`);
             const response = await fetch(`${API_BASE}/compositions/${id}`, {
                 headers: {
                     'Authorization': authToken
-                }
+                },
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
             });
 
             if (response.ok) {
                 const composition = await response.json();
-
-                modalTitle.textContent = 'Editar Composición';
-                document.getElementById('compositionId').value = composition.id;
-                document.getElementById('title').value = composition.title;
-                document.getElementById('observations').value = composition.observations || '';
-
-                // Generar campos para las líneas
-                const lanes = ['TOP', 'JG', 'MID', 'ADC', 'SUPP'];
-                lanesContainer.innerHTML = lanes.map(lane => {
-                    const line = composition.lines.find(l => l.laneType === lane);
-                    const champions = line ? line.options.map(opt => opt.champion) : [];
-
-                    return `
-                            <div class="mb-3">
-                                <label class="form-label">${lane}</label>
-                                <div class="position-relative">
-                                    <input type="text" class="form-control form-control-custom mb-2 champion-search"
-                                           data-lane="${lane}" placeholder="Buscar campeón..."
-                                           oninput="showChampionSuggestions('${lane}', this.value)">
-                                    <div class="suggestion-box" id="suggestions-${lane}"></div>
-                                </div>
-                                <div class="selected-champions" id="selected-${lane}">
-                                    ${champions.map(champ => `
-                                        <div class="d-inline-block me-2 mb-2 position-relative champion-${champ.id}">
-                                            <img src="${champ.imageUrl}" class="champion-small" alt="${champ.name}" title="${champ.name}">
-                                            <input type="hidden" name="${lane}-champions" value="${champ.id}">
-                                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-                                                  style="cursor: pointer; font-size: 0.5rem;"
-                                                  onclick="removeChampion(this, '${lane}', ${champ.id})">
-                                                <i class="fas fa-times"></i>
-                                            </span>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        `;
-                }).join('');
-
-                compositionModal.show();
-
-                // Inicializar eventos de búsqueda
-                document.querySelectorAll('.champion-search').forEach(input => {
-                    input.addEventListener('blur', function() {
-                        setTimeout(() => {
-                            document.getElementById(`suggestions-${this.dataset.lane}`).style.display = 'none';
-                        }, 200);
-                    });
-                });
+                logDebug(`Composición cargada: ${JSON.stringify(composition)}`);
+                showEditForm(composition);
             } else if (response.status === 401) {
                 logout();
+            } else {
+                logDebug(`Error al cargar composición: ${response.status}`);
+                alert('Error al cargar la composición para editar');
             }
         } catch (error) {
-            console.error('Error loading composition:', error);
+            logDebug(`Error al cargar composición: ${error.message}`);
+            alert('Error al cargar la composición para editar');
         }
+    }
+
+    // Mostrar formulario de edición
+    function showEditForm(composition) {
+        modalTitle.textContent = 'Editar Composición';
+        document.getElementById('compositionId').value = composition.id;
+        document.getElementById('title').value = composition.title;
+        document.getElementById('observations').value = composition.observations || '';
+
+        // Generar campos para las líneas
+        const lanes = ['TOP', 'JG', 'MID', 'ADC', 'SUPP'];
+        lanesContainer.innerHTML = lanes.map(lane => {
+            const line = composition.lines.find(l => l.laneType === lane);
+            const champions = line ? line.options.map(opt => opt.champion) : [];
+
+            return `
+                    <div class="mb-3">
+                        <label class="form-label">${lane}</label>
+                        <div class="position-relative">
+                            <input type="text" class="form-control form-control-custom mb-2 champion-search"
+                                   data-lane="${lane}" placeholder="Buscar campeón..."
+                                   oninput="showChampionSuggestions('${lane}', this.value)">
+                            <div class="suggestion-box" id="suggestions-${lane}"></div>
+                        </div>
+                        <div class="selected-champions" id="selected-${lane}">
+                            ${champions.map(champ => `
+                                <div class="d-inline-block me-2 mb-2 position-relative champion-${champ.id}">
+                                    <img src="${champ.imageUrl}" class="champion-small" alt="${champ.name}" title="${champ.name}">
+                                    <input type="hidden" name="${lane}-champions" value="${champ.id}">
+                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                                          style="cursor: pointer; font-size: 0.5rem;"
+                                          onclick="removeChampion(this, '${lane}', ${champ.id})">
+                                        <i class="fas fa-times"></i>
+                                    </span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="error-message" id="${lane}-error"></div>
+                    </div>
+                `;
+        }).join('');
+
+        compositionModal.show();
+
+        // Inicializar eventos de búsqueda
+        document.querySelectorAll('.champion-search').forEach(input => {
+            input.addEventListener('blur', function() {
+                setTimeout(() => {
+                    document.getElementById(`suggestions-${this.dataset.lane}`).style.display = 'none';
+                }, 200);
+            });
+        });
     }
 
     // Eliminar composición
@@ -719,23 +1122,37 @@
             return;
         }
 
+        // Si estamos en modo demostración, eliminar localmente
+        if (demoMode) {
+            demoCompositions = demoCompositions.filter(comp => comp.id != id);
+            localStorage.setItem('demoCompositions', JSON.stringify(demoCompositions));
+            loadCompositions(currentPage);
+            logDebug('Composición eliminada en modo demostración');
+            return;
+        }
+
+        // Intentar eliminar en el backend
         try {
+            logDebug(`Eliminando composición: ${id}`);
             const response = await fetch(`${API_BASE}/compositions/${id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': authToken
-                }
+                },
+                signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
             });
 
             if (response.ok) {
                 loadCompositions(currentPage);
+                logDebug('Composición eliminada exitosamente');
             } else if (response.status === 401) {
                 logout();
             } else {
+                logDebug(`Error al eliminar: ${response.status}`);
                 alert('Error al eliminar la composición');
             }
         } catch (error) {
-            console.error('Error deleting composition:', error);
+            logDebug(`Error al eliminar: ${error.message}`);
             alert('Error al eliminar la composición');
         }
     }

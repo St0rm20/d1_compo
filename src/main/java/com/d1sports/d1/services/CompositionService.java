@@ -95,4 +95,47 @@ public class CompositionService {
         }
         return championRepository.findByNameContainingIgnoreCase(query);
     }
+
+    public Composition updateComposition(Long id, CompositionDTO compositionDTO) {
+        Composition existingComposition = compositionRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Composición no encontrada con ID: " + id));
+
+        // Verificar si el nuevo título ya existe (excluyendo la composición actual)
+        if (!existingComposition.getTitle().equals(compositionDTO.getTitle()) &&
+                compositionRepository.existsByTitle(compositionDTO.getTitle())) {
+            throw new RuntimeException("Ya existe una composición con ese título");
+        }
+
+        // Actualizar campos básicos
+        existingComposition.setTitle(compositionDTO.getTitle());
+        existingComposition.setObservations(compositionDTO.getObservations());
+
+        // Limpiar las líneas existentes para reconstruirlas
+        existingComposition.getLines().clear();
+
+        // Procesar nuevas líneas
+        for (LineDTO lineDTO : compositionDTO.getLines()) {
+            CompositionLine line = new CompositionLine();
+            line.setComposition(existingComposition);
+            line.setLaneType(lineDTO.getLaneType());
+            line.setPositionOrder(getOrderForLane(lineDTO.getLaneType()));
+
+            // Procesar opciones de campeones
+            for (ChampionOptionDTO optionDTO : lineDTO.getOptions()) {
+                Champion champion = championRepository.findById(optionDTO.getChampionId())
+                        .orElseThrow(() -> new RuntimeException("Campeón no encontrado con ID: " + optionDTO.getChampionId()));
+
+                LineOption option = new LineOption();
+                option.setLine(line);
+                option.setChampion(champion);
+                option.setOptionOrder(optionDTO.getOrder());
+
+                line.getOptions().add(option);
+            }
+
+            existingComposition.getLines().add(line);
+        }
+
+        return compositionRepository.save(existingComposition);
+    }
 }
